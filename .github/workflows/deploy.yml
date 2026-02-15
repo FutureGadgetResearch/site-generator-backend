@@ -23,15 +23,12 @@ jobs:
 
       - uses: google-github-actions/setup-gcloud@v2
 
-      - name: Deploy Cloud Function
+      - name: Deploy Cloud Run Function
         run: |
-          gcloud functions deploy GenerateSite \
-            --gen2 \
-            --runtime=go122 \
+          gcloud run deploy generate-site \
+            --source=. \
+            --function=GenerateSite \
             --region=${{ vars.GCP_REGION }} \
             --project=${{ vars.GCP_PROJECT_ID }} \
-            --trigger-http \
             --allow-unauthenticated \
-            --entry-point=GenerateSite \
-            --source=. \
             --set-env-vars "GITHUB_APP_ID=${{ secrets.GH_APP_ID }},GITHUB_APP_INSTALLATION_ID=${{ secrets.GH_APP_INSTALLATION_ID }},GITHUB_APP_PRIVATE_KEY=${{ secrets.GH_APP_PRIVATE_KEY }},GITHUB_ORG=${{ vars.GITHUB_ORG }},PAGES_BASE_DOMAIN=${{ vars.PAGES_BASE_DOMAIN }},CLOUDFLARE_API_TOKEN=${{ secrets.CLOUDFLARE_API_TOKEN }},CLOUDFLARE_ZONE_ID=${{ secrets.CLOUDFLARE_ZONE_ID }}"
