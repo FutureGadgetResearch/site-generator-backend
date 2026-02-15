@@ -1,6 +1,6 @@
 # site-generator-backend
 
-A GCP Cloud Function (Go) that clones a Hugo template repo, injects custom data, and pushes it as a new site repo.
+A GCP Cloud Run Function (Go) that clones a Hugo template repo, injects custom data, and pushes it as a new site repo.
 
 ## Prerequisites
 
@@ -11,6 +11,7 @@ A GCP Cloud Function (Go) that clones a Hugo template repo, injects custom data,
   - **Repository: Pages** — Read & Write
   - **Repository: Actions** — Read & Write (required for dispatching workflows)
 - (For deployment) `gcloud` CLI
+- (Optional) Cloudflare account for custom domain CNAME management
 
 ## Environment Variables
 
@@ -21,6 +22,8 @@ A GCP Cloud Function (Go) that clones a Hugo template repo, injects custom data,
 | `GITHUB_APP_PRIVATE_KEY` | Yes | — | PEM private key (full contents, not a file path) |
 | `GITHUB_ORG` | No | `FutureGadgetResearch` | GitHub org for template and output repos |
 | `PAGES_BASE_DOMAIN` | No | — | Base domain for custom GitHub Pages URLs (e.g. `35357670.xyz` → `site-name.35357670.xyz`) |
+| `CLOUDFLARE_API_TOKEN` | No | — | Cloudflare API token for managing DNS records |
+| `CLOUDFLARE_ZONE_ID` | No | — | Cloudflare Zone ID for the base domain |
 | `PORT` | No | `8080` | Local server port |
 
 ## Running Locally
@@ -35,6 +38,87 @@ go run cmd/server/main.go
 ```
 
 The server starts on `http://localhost:8080`.
+
+## Deploying to GCP (Cloud Build)
+
+### 1. Create Secrets in Secret Manager
+
+Store each secret in [Secret Manager](https://console.cloud.google.com/security/secret-manager):
+
+| Secret Name | Value |
+|---|---|
+| `github-app-id` | GitHub App ID |
+| `github-app-installation-id` | GitHub App Installation ID |
+| `github-app-private-key` | PEM private key contents |
+| `cloudflare-api-token` | Cloudflare API token |
+| `cloudflare-zone-id` | Cloudflare Zone ID |
+
+### 2. Grant Secret Manager Access
+
+The Cloud Run service account needs the **Secret Manager Secret Accessor** role. Grant it at the project level:
+
+```bash
+gcloud projects add-iam-policy-binding PROJECT_ID \
+  --member="serviceAccount:PROJECT_NUMBER-compute@developer.gserviceaccount.com" \
+  --role="roles/secretmanager.secretAccessor"
+```
+
+Or per-secret for least privilege:
+
+```bash
+gcloud secrets add-iam-policy-binding SECRET_NAME \
+  --member="serviceAccount:PROJECT_NUMBER-compute@developer.gserviceaccount.com" \
+  --role="roles/secretmanager.secretAccessor"
+```
+
+### 3. Cloud Build Trigger Configuration
+
+Set up a Cloud Build trigger connected to this repository with:
+
+| Setting | Value |
+|---|---|
+| Build type | Go |
+| Build context directory | `/` |
+| Entry point | `GenerateSite` |
+| Function target | `GenerateSite` |
+
+Configure environment variables on the Cloud Run function, referencing Secret Manager for sensitive values and setting plain text for non-sensitive ones:
+
+**Secrets (reference from Secret Manager):**
+- `GITHUB_APP_ID`
+- `GITHUB_APP_INSTALLATION_ID`
+- `GITHUB_APP_PRIVATE_KEY`
+- `CLOUDFLARE_API_TOKEN`
+- `CLOUDFLARE_ZONE_ID`
+
+**Plain text variables:**
+- `GITHUB_ORG`
+- `PAGES_BASE_DOMAIN`
+
+### Deploying with GitHub Actions (alternative)
+
+The `.github/workflows/deploy.yml` workflow deploys on push to `main` using Workload Identity Federation.
+
+**GitHub Actions Secrets:**
+
+| Secret | Description |
+|---|---|
+| `GH_APP_ID` | GitHub App ID |
+| `GH_APP_INSTALLATION_ID` | GitHub App Installation ID |
+| `GH_APP_PRIVATE_KEY` | PEM private key contents |
+| `CLOUDFLARE_API_TOKEN` | Cloudflare API token |
+| `CLOUDFLARE_ZONE_ID` | Cloudflare Zone ID |
+
+**GitHub Actions Variables:**
+
+| Variable | Description |
+|---|---|
+| `GCP_WORKLOAD_IDENTITY_PROVIDER` | Workload Identity Provider resource name |
+| `GCP_SERVICE_ACCOUNT` | GCP service account email |
+| `GCP_REGION` | GCP region (e.g. `us-central1`) |
+| `GCP_PROJECT_ID` | GCP project ID |
+| `GITHUB_ORG` | GitHub org name |
+| `PAGES_BASE_DOMAIN` | Base domain for Pages URLs |
 
 ## API Endpoints
 
@@ -97,14 +181,4 @@ The `type` field determines the data filename inside the generated repo. For exa
 { "site_name": "jane-john-wedding" }
 ```
 
-**Response**: `204 No Content` on success.
-
-## Deploying to GCP
-
-```bash
-gcloud functions deploy GenerateSite \
-  --gen2 \
-  --runtime=go122 \
-  --trigger-http \
-  --set-env-vars GITHUB_APP_ID=123456,GITHUB_APP_INSTALLATION_ID=78901234,GITHUB_APP_PRIVATE_KEY="$(cat path/to/private-key.pem)"
-```
+**Response**: `204 No Content` on success. Also deletes the Cloudflare CNAME record if Cloudflare is configured.

@@ -1,0 +1,14 @@
+steps:
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    args:
+      - gcloud
+      - run
+      - deploy
+      - site-generator-backend
+      - --source=.
+      - --function=GenerateSite
+      - --region=$_REGION
+      - --project=$PROJECT_ID
+      - --allow-unauthenticated
+      - --set-secrets=GITHUB_APP_ID=github-app-id:latest,GITHUB_APP_INSTALLATION_ID=github-app-installation-id:latest,GITHUB_APP_PRIVATE_KEY=github-app-private-key:latest,CLOUDFLARE_API_TOKEN=cloudflare-api-token:latest,CLOUDFLARE_ZONE_ID=cloudflare-zone-id:latest
+      - --set-env-vars=GITHUB_ORG=$_GITHUB_ORG,PAGES_BASE_DOMAIN=$_PAGES_BASE_DOMAIN
